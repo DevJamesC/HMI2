@@ -109,14 +109,21 @@ def main():
     maxLightvalue=0
     currentLightValue=0
     lastLightError=0
+    localMaxLightValue=0
     i=0
     romeObjDirection=1
+    oneTimeBoolLock=False
+    foundLocal=False
+    spincounter=0
+    avoidcounter=0
+    avoidcountBool=False
     #else() #all other PIDs go above this one in an if statment of decending physical priority.
     while True:
         avoidError=getAvoidanceError(target,us2.value(),us3.value())
-        debug_print(avoidError)
-        if(avoidError!=0 and currentLightValue!=maxLightvalue):  #OBJECT AVOIDANCE PID
+        #debug_print(avoidError)
+        if((avoidError!=0 and currentLightValue!=maxLightvalue and currentLightValue<15)or avoidcountBool==False):  #OBJECT AVOIDANCE PID
             i=0
+            avoidcounter= avoidcounter+1
             #if(avoidError>0):
             #    romeObjDirection=1
            # else:
@@ -134,7 +141,7 @@ def main():
             #debug_print('error is: '+str(error))
             #debug_print('integral: ' +str(integral))
             #debug_print('derivitive is: '+str(derivitive))
-            #debug_print('toatl is: '+str(p))       
+            #debug_print('toatl is: '+str(p))
             mbMove=tp-p#-(abs(error)/10)
             mcMove=tp+p#-(abs(error)/10)
 
@@ -146,8 +153,15 @@ def main():
                 mcMove=-100
             if(mcMove>=100):
                 mcMove=100 
-            mb.run_direct(duty_cycle_sp= -mbMove)
-            mc.run_direct(duty_cycle_sp= -mcMove)
+            if(avoidcounter<50):
+                mb.run_direct(duty_cycle_sp= -mbMove)
+                mc.run_direct(duty_cycle_sp= -mcMove)
+            else:
+                mb.run_direct(duty_cycle_sp= -99)
+                mc.run_direct(duty_cycle_sp= -99)
+            if(avoidcounter>=149):
+                avoidcounter=0
+                avoidcountBool=True
             # debug_print(mbMove)
             if(integral>1000): #capping integral
                 integral=1000
@@ -157,57 +171,77 @@ def main():
              mb.run_direct(duty_cycle_sp= 0)
              mc.run_direct(duty_cycle_sp= 0)
 
-        elif(lightValue>=21 or True):  #LIGHT SEEKING PID
+        elif(lightValue>=15 or True):  #LIGHT SEEKING PID
             currentLightValue= ls1.value()
-            if(currentLightValue>=maxLightvalue): 
+            if(avoidcountBool==False):
+                avoidcountBool=True
+            if(currentLightValue>=maxLightvalue): #if current light is brighter than any light seen before, set it = to maxlightvalue
                 maxLightvalue=currentLightValue
-            lightError= (maxLightvalue-currentLightValue)
-            debug_print(lightError)
-            dt= time.time()-startTime # dt is the delta time since the program started running.
-            #debug_print(us2.value())
-            integral= ((1/100)*integral)+(lightError*dt) #the integral is the sum of all errors over time, reduced by 1/3rd every tick so it doesn't go out of control
-            #debug_print(dt)
-            derivitive= lightError-lastLightError # the derivitive is the estimated next error based on the last error and the current error.
-            p= (kpLight*lightError)+(kiLight*integral)+(kdLight*derivitive) #if error is 0, do not turn, P is the total rate of turn
-            p=p/10
-            #debug_print('error is: '+str(error))
-            #debug_print('integral: ' +str(integral))
-            #debug_print('derivitive is: '+str(derivitive))
-            #debug_print('toatl is: '+str(p))       
-            mbMove=tp+p#-(abs(error)/10)
-            mcMove=tp-p#-(abs(error)/10)
+                localMaxLightValue=0
+            
+            if(currentLightValue<maxLightvalue-3 or foundLocal==False):# if true, stop and turn in a circle till it reaches the point where it's facing localmax. Then set maxlight to localmax.
+                if(oneTimeBoolLock==False):
+                    maxLightvalue=0
+                    oneTimeBoolLock=True
+                localMaxLightValue=maxLightvalue
+                mb.run_direct(duty_cycle_sp= -50)
+                mc.run_direct(duty_cycle_sp= 50)
+                spincounter=spincounter+1
+                if(spincounter>=200 and localMaxLightValue-3==currentLightValue):
+                    spincounter=0
+                    foundLocal=True
+                    oneTimeBoolLock=False
+                    localMaxLightValue=0
+               
 
-            if(mbMove>=100): #setting move caps (at 100% power)
-                mbMove=100
-            if(mbMove<=-100):
-                mbMove=-100
-            if(mcMove<=-100):
-                mcMove=-100
-            if(mcMove>=100):
-                mcMove=100 
-            mb.run_direct(duty_cycle_sp= -mbMove)
-            mc.run_direct(duty_cycle_sp= -mcMove)
-            # debug_print(mbMove)
-            if(integral>1000): #capping integral
-                integral=1000
-            if(integral<-1000):
-                integral=-1000
-
-        elif(avoidError==0):#Romeing DOES NOT WORK! BORKS AVOIDANCE
-            mbMove=tp
-            mcMove=tp
-            while(i<600):
+            else:
+                lightError= (maxLightvalue-currentLightValue)
+                #debug_print(lightError)
+                dt= time.time()-startTime # dt is the delta time since the program started running.
+                #debug_print(us2.value())
+                integral= ((1/100)*integral)+(lightError*dt) #the integral is the sum of all errors over time, reduced by 1/3rd every tick so it doesn't go out of control
+                #debug_print(dt)
+                derivitive= lightError-lastLightError # the derivitive is the estimated next error based on the last error and the current error.
+                p= (kpLight*lightError)+(kiLight*integral)+(kdLight*derivitive) #if error is 0, do not turn, P is the total rate of turn
+                p=p/10
+                #debug_print('error is: '+str(error))
+                #debug_print('integral: ' +str(integral))
+                #debug_print('derivitive is: '+str(derivitive))
+                #debug_print('toatl is: '+str(p))       
+                mbMove=tp+p#-(abs(error)/10)
+                mcMove=tp-p#-(abs(error)/10)
+                debug_print(currentLightValue,localMaxLightValue)
+                if(mbMove>=100): #setting move caps (at 100% power)
+                    mbMove=100
+                if(mbMove<=-100):
+                    mbMove=-100
+                if(mcMove<=-100):
+                    mcMove=-100
+                if(mcMove>=100):
+                    mcMove=100 
                 mb.run_direct(duty_cycle_sp= -mbMove)
                 mc.run_direct(duty_cycle_sp= -mcMove)
-                i=i+1
-            if(i>=600 and i<660):
-                mbMove=tp*romeObjDirection
-                mcMove=tp*romeObjDirection
-                mb.run_direct(duty_cycle_sp= mbMove)
-                mc.run_direct(duty_cycle_sp= -mcMove)
-                i=i+1
-            elif(i>=660):
-                i=0
+                # debug_print(mbMove)
+                if(integral>1000): #capping integral
+                    integral=1000
+                if(integral<-1000):
+                    integral=-1000
+
+               # elif(avoidError==0):#Romeing DOES NOT WORK! BORKS AVOIDANCE `   |1      `
+               # mbMove=tp
+               # mcMove=tp
+               # while(i<600):
+                #    mb.run_direct(duty_cycle_sp= -mbMove)
+                 #   mc.run_direct(duty_cycle_sp= -mcMove)
+                  #  i=i+1
+                #if(i>=600 and i<660):
+                 #   mbMove=tp*romeObjDirection
+                  #  mcMove=tp*romeObjDirection
+                   # mb.run_direct(duty_cycle_sp= mbMove)
+                 #   mc.run_direct(duty_cycle_sp= -mcMove)
+                  #  i=i+1
+                #elif(i>=660):
+                 #   i=0
        
 
                 
